@@ -16,6 +16,7 @@
 \usetikzlibrary{arrows.meta,positioning,calc,fit,backgrounds,shapes.geometric}
 \pgfplotsset{compat=1.18}
 \setlength{\parskip}{4pt}
+\setlength{\emergencystretch}{1.5em}
 \setlist[itemize]{leftmargin=*,itemsep=1pt,topsep=2pt}
 
 \definecolor{navy}{HTML}{16324F}
@@ -32,30 +33,30 @@
     draw=navy!70,
     fill=softgray,
     thick,
-    minimum width=2.35cm,
+    minimum width=2.1cm,
     minimum height=0.95cm,
     align=center,
-    font=\small
+    font=\footnotesize
   },
   modelbox/.style={
     rounded corners=7pt,
     draw=teal!75!black,
     fill=teal!8,
     thick,
-    minimum width=2.45cm,
+    minimum width=2.2cm,
     minimum height=1.0cm,
     align=center,
-    font=\small
+    font=\footnotesize
   },
   evalbox/.style={
     rounded corners=7pt,
     draw=gold!85!black,
     fill=gold!12,
     thick,
-    minimum width=2.45cm,
+    minimum width=2.2cm,
     minimum height=1.0cm,
     align=center,
-    font=\small
+    font=\footnotesize
   },
   dataarrow/.style={-{Latex[length=2.6mm,width=1.8mm]},thick,draw=navy!75},
   dagroot/.style={ellipse,draw=navy!70,fill=navy!10,thick,minimum width=1.05cm,minimum height=0.55cm,font=\scriptsize},
@@ -91,17 +92,17 @@ The accompanying notebooks implement the full pipeline from preprocessing throug
 
 \begin{figure*}[t]
 \centering
-\begin{tikzpicture}[node distance=1.5cm]
-  \node[flowbox] (raw) {Raw Cleveland data\\303 patients, 14 variables};
-  \node[flowbox, right=1.8cm of raw] (disc) {Clinical discretization\\5 continuous variables binned};
-  \node[flowbox, right=1.8cm of disc] (split) {Stratified split\\242 train / 61 test};
+\begin{tikzpicture}[x=1cm,y=1cm]
+  \node[flowbox] (raw) at (0.0,0.0) {Raw Cleveland data\\303 patients, 14 variables};
+  \node[flowbox] (disc) at (3.3,0.0) {Clinical discretization\\5 continuous variables binned};
+  \node[flowbox] (split) at (6.6,0.0) {Stratified split\\242 train / 61 test};
 
-  \node[modelbox, below left=1.3cm and -0.1cm of split] (expert) {Expert DAG\\17 clinically chosen edges};
-  \node[modelbox, below right=1.3cm and -0.1cm of split] (learned) {Learned DAG\\Hill-climb + BIC\\max in-degree = 3};
+  \node[modelbox] (expert) at (4.8,-1.95) {Expert DAG\\17 clinically chosen edges};
+  \node[modelbox] (learned) at (8.4,-1.95) {Learned DAG\\Hill-climb + BIC\\max in-degree = 3};
 
-  \node[flowbox, below=1.7cm of split] (fit) {Parameter learning\\BDeu prior, ESS = 5};
-  \node[flowbox, right=1.8cm of fit] (infer) {Exact inference\\Variable Elimination\\MinFill order};
-  \node[evalbox, right=1.8cm of infer] (eval) {Evaluation\\Accuracy, ROC-AUC,\\Brier, CV, interpretation};
+  \node[flowbox] (fit) at (6.6,-3.9) {Parameter learning\\BDeu prior, ESS = 5};
+  \node[flowbox] (infer) at (9.7,-3.9) {Exact inference\\Variable Elimination\\MinFill order};
+  \node[evalbox] (eval) at (12.8,-3.9) {Evaluation\\Accuracy, ROC-AUC,\\Brier, CV, interpretation};
 
   \draw[dataarrow] (raw) -- (disc);
   \draw[dataarrow] (disc) -- (split);
@@ -112,8 +113,8 @@ The accompanying notebooks implement the full pipeline from preprocessing throug
   \draw[dataarrow] (fit) -- (infer);
   \draw[dataarrow] (infer) -- (eval);
 
-  \node[font=\footnotesize, text width=3.2cm, align=center, below=0.15cm of expert] {Notebook 02: structure + CPT estimation};
-  \node[font=\footnotesize, text width=3.2cm, align=center, below=0.15cm of eval] {Notebook 03: inference, calibration, CV, blanket analysis};
+  \node[font=\scriptsize, text width=2.8cm, align=center] at (4.8,-2.95) {Notebook 02: structure and CPT estimation};
+  \node[font=\scriptsize, text width=3.0cm, align=center] at (11.2,-4.95) {Notebook 03: inference, calibration, cross-validation, and interpretation};
 \end{tikzpicture}
 \caption{Project workflow distilled from the three notebooks. The report focuses on the same pipeline, but packages the visuals as native \LaTeX{} figures for portability.}
 \label{fig:pipeline}
@@ -205,9 +206,10 @@ Table~\ref{tab:results} summarizes the main quantitative results. Both structure
 \small
 \caption{Held-out and cross-validated performance. Lower Brier is better.}
 \rowcolors{2}{softgray}{white}
+\setlength{\tabcolsep}{4pt}
 \begin{tabular}{lcccc}
 \toprule
-Model & Acc. & ROC-AUC & Brier & 5-fold CV AUC \\
+Model & Acc. & ROC-AUC & Brier & CV AUC \\
 \midrule
 Expert DAG & 0.820 & 0.882 & 0.140 & $0.874 \pm 0.038$ \\
 Learned DAG & 0.803 & 0.869 & 0.148 & $0.862 \pm 0.051$ \\
@@ -319,21 +321,21 @@ The test-set numbers are reinforced by cross-validation. The expert graph reache
 \addplot[
   only marks,
   mark=*,
-  mark options={fill=navy!80},
-  error bars/.cd,
-  y dir=both,
-  y explicit,
-  draw=navy!80
+  mark options={fill=navy!80,draw=navy!80},
+  draw=navy!80,
+  error bars/y dir=both,
+  error bars/y explicit,
+  error bars/error bar style={draw=navy!80}
 ] coordinates {(CV AUC,0.874) +- (0,0.038)};
 
 \addplot[
   only marks,
   mark=square*,
-  mark options={fill=teal!85!black},
-  error bars/.cd,
-  y dir=both,
-  y explicit,
-  draw=teal!85!black
+  mark options={fill=teal!85!black,draw=teal!85!black},
+  draw=teal!85!black,
+  error bars/y dir=both,
+  error bars/y explicit,
+  error bars/error bar style={draw=teal!85!black}
 ] coordinates {(CV AUC,0.862) +- (0,0.051)};
 \end{axis}
 \end{tikzpicture}
