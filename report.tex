@@ -1,203 +1,359 @@
 \documentclass[10pt,twocolumn]{article}
 \usepackage[margin=0.8in,top=0.75in,bottom=0.75in]{geometry}
+\usepackage[T1]{fontenc}
 \usepackage{graphicx}
 \usepackage{booktabs}
 \usepackage{amsmath}
+\usepackage{array}
 \usepackage{hyperref}
 \usepackage{microtype}
 \usepackage{parskip}
+\usepackage{enumitem}
+\usepackage[table]{xcolor}
+\usepackage{tikz}
+\usepackage{pgfplots}
+\usepackage{subcaption}
+\usetikzlibrary{arrows.meta,positioning,calc,fit,backgrounds,shapes.geometric}
+\pgfplotsset{compat=1.18}
 \setlength{\parskip}{4pt}
+\setlist[itemize]{leftmargin=*,itemsep=1pt,topsep=2pt}
 
-\title{\textbf{Bayesian Networks for Heart Disease Diagnosis:\\
-Structure Learning, Calibrated Uncertainty, and Interpretation}}
+\definecolor{navy}{HTML}{16324F}
+\definecolor{teal}{HTML}{2F6F6D}
+\definecolor{gold}{HTML}{C78A2C}
+\definecolor{brick}{HTML}{B24745}
+\definecolor{slate}{HTML}{6B7A8F}
+\definecolor{softgray}{HTML}{F3F5F7}
+\definecolor{blanket}{HTML}{DCEFE7}
+
+	ikzset{
+  flowbox/.style={
+    rounded corners=7pt,
+    draw=navy!70,
+    fill=softgray,
+    thick,
+    minimum width=2.35cm,
+    minimum height=0.95cm,
+    align=center,
+    font=\small
+  },
+  modelbox/.style={
+    rounded corners=7pt,
+    draw=teal!75!black,
+    fill=teal!8,
+    thick,
+    minimum width=2.45cm,
+    minimum height=1.0cm,
+    align=center,
+    font=\small
+  },
+  evalbox/.style={
+    rounded corners=7pt,
+    draw=gold!85!black,
+    fill=gold!12,
+    thick,
+    minimum width=2.45cm,
+    minimum height=1.0cm,
+    align=center,
+    font=\small
+  },
+  dataarrow/.style={-{Latex[length=2.6mm,width=1.8mm]},thick,draw=navy!75},
+  dagroot/.style={ellipse,draw=navy!70,fill=navy!10,thick,minimum width=1.05cm,minimum height=0.55cm,font=\scriptsize},
+  dagnode/.style={ellipse,draw=teal!75!black,fill=teal!10,thick,minimum width=1.1cm,minimum height=0.55cm,font=\scriptsize},
+  dagparent/.style={ellipse,draw=gold!80!black,fill=gold!18,thick,minimum width=1.1cm,minimum height=0.55cm,font=\scriptsize},
+  dagtarget/.style={ellipse,draw=brick!80!black,fill=brick!18,thick,minimum width=1.2cm,minimum height=0.6cm,font=\scriptsize\bfseries},
+  dagar/.style={-{Latex[length=2.0mm,width=1.5mm]},thin,draw=slate!90}
+}
+
+	itle{\textbf{Bayesian Networks for Heart Disease Diagnosis:}\\
+	extbf{Structure Learning, Calibration, and Clinical Interpretability}}
 \author{CS 179 Project Report\\University of California, Irvine}
 \date{June 2026}
 
 \begin{document}
 \maketitle
 
+\begin{abstract}
+We study Bayesian networks for binary heart-disease diagnosis on the UCI Cleveland dataset. The project compares a clinically informed expert graph against a data-driven graph learned by greedy hill-climbing with the Bayesian Information Criterion, with both structures fitted using a BDeu prior and evaluated by exact inference. On the held-out test split, the expert network achieves 0.820 accuracy, 0.882 ROC-AUC, and a 0.140 Brier score, while the learned structure attains 0.803 accuracy, 0.869 ROC-AUC, and a 0.148 Brier score. Five-fold cross-validation shows the same ordering in mean ROC-AUC: $0.874 \pm 0.038$ for the expert graph versus $0.862 \pm 0.051$ for the learned graph. The main takeaway is that on a small clinical dataset, structural prior knowledge acts as useful regularization: it preserves interpretability, produces slightly stronger discrimination, and yields better-calibrated probabilities than unconstrained structure search.
+\end{abstract}
+
 \section{Introduction}
-Heart disease is the leading cause of death in the United States, yet its
-diagnosis involves integrating uncertain evidence from many heterogeneous
-clinical variables. A \textit{probabilistic graphical model} is a natural
-fit: a \textbf{Bayesian network} (BN) over the observed variables explicitly
-represents conditional independence structure, supports exact inference over any
-query variable, and---crucially---outputs calibrated posterior probabilities
-rather than mere point predictions.
+Clinical diagnosis is fundamentally probabilistic: symptoms, laboratory values, and stress-test findings rarely determine disease status with certainty. For this project, that makes a Bayesian network (BN) an appropriate modeling choice. A BN exposes conditional dependencies between variables, supports exact posterior queries, and returns probabilities rather than only hard class labels. Those properties matter in a medical setting, where decision support should convey uncertainty directly.
 
-We apply BNs to the UCI Cleveland Heart Disease dataset (303 patients,
-13 clinical features, binary target). Our primary questions are: (1) Does
-a hand-crafted expert structure or a data-learned structure yield better
-predictive performance? (2) Are the predicted probabilities \textit{well
-calibrated}? (3) Which variables are most informative for diagnosis?
-
-\section{Data and Methods}
-
-\subsection{Dataset}
-The Cleveland subset of the UCI Heart Disease dataset contains 303 patients
-(68\% male, 55\% with diagnosed heart disease). The 13 features span demographics
-(\texttt{age}, \texttt{sex}), risk factors (\texttt{chol}, \texttt{trestbps},
-\texttt{fbs}), and clinical test results (\texttt{cp}, \texttt{restecg},
-\texttt{thalach}, \texttt{exang}, \texttt{oldpeak}, \texttt{slope}, \texttt{ca},
-\texttt{thal}).
-
-\subsection{Discretisation}
-Bayesian networks require discrete state spaces. Five continuous variables were
-binned into clinically interpretable categories following established guidelines
-(AHA blood-pressure tiers, NCEP cholesterol tiers, etc.):
-\texttt{age} $\to$ 4 bins, \texttt{trestbps} $\to$ 3 bins, \texttt{chol} $\to$ 3 bins,
-\texttt{thalach} $\to$ 3 bins, \texttt{oldpeak} $\to$ 3 bins.
-The 8 remaining variables are already categorical or binary.
-
-An 80/20 stratified split gives a training set of 242 and test set of 61 patients.
-
-\subsection{Model 1: Expert DAG}
-We encode prior clinical knowledge as a directed acyclic graph (DAG) with 17
-edges. Demographics (\texttt{age}, \texttt{sex}) are root causes of
-cholesterol, resting blood pressure, and maximum heart rate. The ECG result
-(\texttt{restecg}) is a child of \texttt{trestbps}. The exercise pathway chains
-\texttt{thalach} $\to$ \texttt{exang} $\to$ \texttt{target}. The ST-segment chain
-is $\texttt{slope} \to \texttt{oldpeak} \to \texttt{target}$. Eight variables
-have direct edges into \texttt{target}.
-
-\subsection{Model 2: Learned DAG (Hill-Climbing / BIC)}
-We use greedy hill-climbing \cite{pgmpy} with the Bayesian Information
-Criterion as the scoring function, constraining maximum in-degree to 3 to keep
-CPTs tractable. The search is run over the full set of 14 discretised variables
-on the training fold.
-
-\subsection{Parameter Learning}
-Both structures are fitted by Maximum Likelihood with a BDeu Bayesian smoothing
-prior (equivalent sample size = 5) to avoid zero-probability CPT entries on the
-small dataset.
-
-\subsection{Inference}
-We use exact inference via Variable Elimination with the MinFill elimination
-order. For each test patient we compute P(target $= 1 \mid$ all other 13
-features observed).
-
-\subsection{Evaluation Metrics}
-\begin{itemize}\setlength{\itemsep}{0pt}
-  \item \textbf{Accuracy} at the 0.5 threshold.
-  \item \textbf{ROC-AUC} for ranking quality independent of threshold.
-  \item \textbf{Brier score} $= \frac{1}{n}\sum(\hat{p}_i - y_i)^2$,
-        which jointly measures calibration and resolution.
-  \item \textbf{Calibration curve} (reliability diagram): empirical positive
-        fraction vs.\ predicted probability in equal-width bins.
-  \item \textbf{5-fold stratified cross-validation} for stable generalisation
-        estimates.
+This project uses the Cleveland subset of the UCI Heart Disease dataset to answer three questions:
+\begin{itemize}
+  \item Can a hand-specified clinical structure outperform a structure learned directly from data?
+  \item Are the resulting posterior probabilities useful as calibrated confidence estimates?
+  \item Which variables sit closest to diagnosis in the graph and therefore carry the most local predictive information?
 \end{itemize}
 
-\section{Results and Discussion}
+The accompanying notebooks implement the full pipeline from preprocessing through inference and evaluation. This revised report mirrors that workflow, but renders figures directly in \LaTeX{} so the project imports cleanly into Overleaf without depending on external PNG exports.
 
-\subsection{Learned Structure}
-Figure~1 shows both DAGs. Hill-climbing recovers several edges present in the
-expert graph (\texttt{ca}$\to$\texttt{target},
-\texttt{cp}$\to$\texttt{target}, \texttt{thal}$\to$\texttt{target},
-\texttt{oldpeak}$\to$\texttt{target}) and adds data-driven connections that
-were not in the expert prior. The expert structure has higher BIC on
-training data in some runs and lower in others depending on how aggressively
-the search explores, illustrating the classic bias-variance tradeoff between
-prior knowledge and data.
+\begin{figure*}[t]
+\centering
+\begin{tikzpicture}[node distance=1.5cm]
+  \node[flowbox] (raw) {Raw Cleveland data\\303 patients, 14 variables};
+  \node[flowbox, right=1.8cm of raw] (disc) {Clinical discretization\\5 continuous variables binned};
+  \node[flowbox, right=1.8cm of disc] (split) {Stratified split\\242 train / 61 test};
 
-\subsection{Predictive Performance}
+  \node[modelbox, below left=1.3cm and -0.1cm of split] (expert) {Expert DAG\\17 clinically chosen edges};
+  \node[modelbox, below right=1.3cm and -0.1cm of split] (learned) {Learned DAG\\Hill-climb + BIC\\max in-degree = 3};
 
-\begin{table}[h]
-\centering\small
-\caption{Test-set (n=61) and 5-fold CV metrics.}
-\begin{tabular}{lrrr}
-\toprule
-Model & Accuracy & ROC-AUC & Brier \\
+  \node[flowbox, below=1.7cm of split] (fit) {Parameter learning\\BDeu prior, ESS = 5};
+  \node[flowbox, right=1.8cm of fit] (infer) {Exact inference\\Variable Elimination\\MinFill order};
+  \node[evalbox, right=1.8cm of infer] (eval) {Evaluation\\Accuracy, ROC-AUC,\\Brier, CV, interpretation};
+
+  \draw[dataarrow] (raw) -- (disc);
+  \draw[dataarrow] (disc) -- (split);
+  \draw[dataarrow] (split) -- (expert);
+  \draw[dataarrow] (split) -- (learned);
+  \draw[dataarrow] (expert) -- (fit);
+  \draw[dataarrow] (learned) -- (fit);
+  \draw[dataarrow] (fit) -- (infer);
+  \draw[dataarrow] (infer) -- (eval);
+
+  \node[font=\footnotesize, text width=3.2cm, align=center, below=0.15cm of expert] {Notebook 02: structure + CPT estimation};
+  \node[font=\footnotesize, text width=3.2cm, align=center, below=0.15cm of eval] {Notebook 03: inference, calibration, CV, blanket analysis};
+\end{tikzpicture}
+\caption{Project workflow distilled from the three notebooks. The report focuses on the same pipeline, but packages the visuals as native \LaTeX{} figures for portability.}
+\label{fig:pipeline}
+\end{figure*}
+
+\section{Data and Experimental Design}
+
+\subsection{Dataset and preprocessing}
+The dataset contains 303 patients, 13 observed clinical predictors, and a binary diagnosis target. The exploratory notebook reports 165 positive cases (54.5\%) and a sex split of 68\% male. Variables include demographics (age, sex), standard risk factors (resting blood pressure, cholesterol, fasting blood sugar), and diagnostic-test outcomes (ECG result, exercise-induced angina, ST depression, thalassemia type, and number of major vessels observed).
+
+Because the project uses discrete BNs in \texttt{pgmpy}, five continuous variables are binned into clinically interpretable categories before learning. The remaining variables are already categorical or binary and are cast to string labels for uniform handling by the library. An 80/20 stratified split yields 242 training cases and 61 test cases.
+
+\begin{table}[t]
+\centering
+\small
+\caption{Discretization scheme used in the preprocessing notebook.}
+\rowcolors{2}{softgray}{white}
+\begin{tabular}{p{0.16\columnwidth}p{0.72\columnwidth}}
+	oprule
+Variable & Clinical bins \\
 \midrule
-Expert DAG        & 0.820 & 0.882 & 0.140 \\
-Learned DAG (HC)  & 0.803 & 0.869 & 0.148 \\
+Age & young $<$ 45, middle 45--55, older 55--65, senior $\geq$ 65 \\
+Trestbps & normal $<$ 120, elevated 120--140, high $\geq$ 140 \\
+Chol & desirable $<$ 200, borderline 200--240, high $\geq$ 240 \\
+Thalach & low $<$ 120, moderate 120--150, high $\geq$ 150 \\
+Oldpeak & none $= 0$, mild $(0,2)$, marked $\geq$ 2 \\
 \bottomrule
 \end{tabular}
+\label{tab:bins}
 \end{table}
 
-\noindent Both models achieve strong discrimination (AUC $> 0.86$), with
-the expert DAG marginally outperforming the data-driven one. This is a
-common finding on small datasets: domain knowledge acts as a useful
-structural regulariser and prevents the search from overfitting spurious
-dependencies.
+\subsection{Competing network structures}
+The first model is an expert DAG that encodes domain knowledge directly. It contains 17 edges and uses clinically plausible pathways: age and sex influence cholesterol, resting blood pressure, and maximum heart rate; exercise variables feed through \texttt{thalach} $\rightarrow$ \texttt{exang}; and several well-known predictors connect directly to the diagnosis node. The direct parents of \texttt{target} in the expert model are \texttt{cp}, \texttt{chol}, \texttt{trestbps}, \texttt{restecg}, \texttt{exang}, \texttt{oldpeak}, \texttt{ca}, and \texttt{thal}.
 
-\subsection{Calibration}
-Figure~2 shows reliability diagrams for both models. The expert DAG stays
-closer to the diagonal, yielding a lower Brier score and indicating that
-its predicted probabilities are better calibrated. The learned model
-tends to be slightly overconfident in the high-probability bins---a known
-consequence of maximum-likelihood structure learning without adequate
-regularisation.
+The second model learns structure from the discretized training set using greedy hill-climbing with the Bayesian Information Criterion (BIC), a maximum in-degree of 3, and up to $10^4$ search iterations. This learned DAG is not treated as a causal claim; rather, it serves as a data-driven comparator for the expert prior.
 
-Well-calibrated probabilities matter in a clinical context: a doctor
-receiving ``80\% probability of heart disease'' should be able to trust
-that approximately 80\% of similarly-scored patients do have the disease.
-BNs with a BDeu prior approach this calibration naturally, in contrast to
-a discriminative classifier that would require post-hoc Platt scaling.
+\subsection{Parameter estimation, inference, and metrics}
+Both graphs are fit with the Bayesian estimator in \texttt{pgmpy} using a BDeu prior with equivalent sample size 5. This is important because the training set is small relative to the size of the conditional probability tables; pure maximum-likelihood fitting would create brittle zero-probability cells.
 
-\subsection{Learning Curves}
-Figure~3 shows ROC-AUC and Brier score as training-set size grows from 20\%
-to 100\% of the training data. AUC rises monotonically and stabilises
-above 200 samples, while Brier score correspondingly decreases, confirming
-that the dataset is large enough to fit the 17-edge expert model reliably.
+For each test patient, the evaluation notebook performs exact inference with Variable Elimination and the MinFill order to compute $P(\texttt{target}=1\mid\text{all observed features})$. The project then evaluates:
+\begin{itemize}
+  \item \textbf{Accuracy} at a 0.5 threshold.
+  \item \textbf{ROC-AUC} for threshold-independent ranking quality.
+  \item \textbf{Brier score} for probabilistic accuracy and calibration.
+  \item \textbf{5-fold stratified cross-validation} on the full discretized dataset.
+  \item \textbf{Interpretation} through structure comparison and the Markov blanket of the diagnosis node.
+\end{itemize}
 
-\subsection{Interpretation and Markov Blanket}
-The Markov blanket of \texttt{target} in the expert model consists of all
-8 direct parents plus the children of \texttt{target} (none in our expert
-DAG) and co-parents of those children. These 8 variables---\texttt{ca},
-\texttt{cp}, \texttt{thal}, \texttt{oldpeak}, \texttt{exang},
-\texttt{chol}, \texttt{trestbps}, \texttt{restecg}---match the clinical
-literature: number of blocked vessels (\texttt{ca}), chest-pain type
-(\texttt{cp}), thalassemia type (\texttt{thal}), and ST depression
-(\texttt{oldpeak}) are widely accepted as the strongest predictors
-of coronary artery disease.
+\section{Results}
 
-The learned model recovers most of these high-weight edges, providing
-data-driven validation of the expert structure. Edges that appear only in
-the learned graph (e.g., \texttt{fbs}$\to$\texttt{target}) represent
-relationships that are statistically present in this sample but lack strong
-prior clinical justification.
+\subsection{Predictive performance}
+Table~\ref{tab:results} summarizes the main quantitative results. Both structures discriminate well on the small held-out test set, but the expert network is consistently better on every reported test metric. The margin is not large, which is useful in itself: the learned graph is competitive, but the clinical prior appears to regularize the model enough to win on both accuracy and uncertainty quality.
 
-\subsection{5-Fold Cross-Validation}
-Over 5 folds, the expert DAG achieves AUC $= 0.874 \pm 0.038$ and the
-learned DAG $0.862 \pm 0.051$. The learned model has higher variance across
-folds, consistent with its dependence on the specific training sample.
+\begin{table}[t]
+\centering
+\small
+\caption{Held-out and cross-validated performance. Lower Brier is better.}
+\rowcolors{2}{softgray}{white}
+\begin{tabular}{lcccc}
+	oprule
+Model & Acc. & ROC-AUC & Brier & 5-fold CV AUC \\
+\midrule
+Expert DAG & 0.820 & 0.882 & 0.140 & $0.874 \pm 0.038$ \\
+Learned DAG & 0.803 & 0.869 & 0.148 & $0.862 \pm 0.051$ \\
+\bottomrule
+\end{tabular}
+\label{tab:results}
+\end{table}
+
+\begin{figure*}[t]
+\centering
+\begin{subfigure}[t]{0.54\textwidth}
+\centering
+\begin{tikzpicture}[scale=0.96]
+  \node[dagroot]   (age)      at (-4.4,  1.8) {age};
+  \node[dagroot]   (sex)      at (-4.4,  0.4) {sex};
+  \node[dagroot]   (fbs)      at (-4.4, -1.1) {fbs};
+  \node[dagroot]   (slope)    at (-1.8, -2.0) {slope};
+
+  \node[dagnode]   (trestbps) at (-2.6,  1.5) {trestbps};
+  \node[dagnode]   (chol)     at (-2.6,  0.2) {chol};
+  \node[dagnode]   (thalach)  at (-2.6, -1.1) {thalach};
+  \node[dagparent] (cp)       at (-0.7,  1.8) {cp};
+  \node[dagparent] (restecg)  at (-0.7,  0.6) {restecg};
+  \node[dagparent] (exang)    at (-0.7, -0.6) {exang};
+  \node[dagparent] (oldpeak)  at (-0.7, -1.9) {oldpeak};
+  \node[dagparent] (ca)       at ( 1.0,  1.2) {ca};
+  \node[dagparent] (thal)     at ( 1.0, -0.9) {thal};
+  \node[dagtarget] (target)   at ( 2.8,  0.3) {target};
+
+  \draw[dagar] (age) -- (trestbps);
+  \draw[dagar] (age) -- (chol);
+  \draw[dagar] (age) -- (thalach);
+  \draw[dagar] (sex) -- (chol);
+  \draw[dagar] (sex) -- (thalach);
+  \draw[dagar] (fbs) -- (chol);
+  \draw[dagar] (trestbps) -- (restecg);
+  \draw[dagar] (thalach) -- (exang);
+  \draw[dagar] (slope) -- (oldpeak);
+  \draw[dagar] (cp) -- (target);
+  \draw[dagar] (chol) -- (target);
+  \draw[dagar] (trestbps) -- (target);
+  \draw[dagar] (restecg) -- (target);
+  \draw[dagar] (exang) -- (target);
+  \draw[dagar] (oldpeak) -- (target);
+  \draw[dagar] (ca) -- (target);
+  \draw[dagar] (thal) -- (target);
+\end{tikzpicture}
+\caption{Expert DAG encoded in Notebook 02. Gold nodes are the direct parents of diagnosis.}
+\label{fig:expertdag}
+\end{subfigure}
+\hfill
+\begin{subfigure}[t]{0.42\textwidth}
+\centering
+\begin{tikzpicture}[scale=1.0]
+  \node[dagtarget] (t) at (0,0) {target};
+  \node[dagparent, fill=blanket] (cpb)       at ( 0.0,  2.0) {cp};
+  \node[dagparent, fill=blanket] (cholb)     at ( 1.6,  1.4) {chol};
+  \node[dagparent, fill=blanket] (trestb)    at ( 2.1,  0.0) {trestbps};
+  \node[dagparent, fill=blanket] (restecgb)  at ( 1.5, -1.4) {restecg};
+  \node[dagparent, fill=blanket] (thalb)     at ( 0.0, -2.0) {thal};
+  \node[dagparent, fill=blanket] (cab)       at (-1.6, -1.4) {ca};
+  \node[dagparent, fill=blanket] (oldpeakb)  at (-2.1,  0.0) {oldpeak};
+  \node[dagparent, fill=blanket] (exangb)    at (-1.5,  1.4) {exang};
+
+  \foreach \x in {cpb,cholb,trestb,restecgb,thalb,cab,oldpeakb,exangb}
+    \draw[dagar] (\x) -- (t);
+\end{tikzpicture}
+\caption{Expert-model Markov blanket of \texttt{target}. Because the target has no children in this graph, the blanket is exactly its eight direct parents.}
+\label{fig:mb}
+\end{subfigure}
+\caption{Interpretability views of the clinically specified model. The expert graph is intentionally sparse and keeps diagnostic reasoning close to recognizable clinical pathways.}
+\label{fig:structure}
+\end{figure*}
+
+The test-set numbers are reinforced by cross-validation. The expert graph reaches a mean ROC-AUC of $0.874$ with standard deviation $0.038$, while the learned graph reaches $0.862$ with a larger standard deviation of $0.051$. On this dataset, that pattern is exactly what one would expect if the hand-crafted structure is acting as structural regularization. The learned graph can adapt to sample-specific dependencies, but that flexibility also increases variance across folds.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+    width=\columnwidth,
+    height=5.5cm,
+    ybar,
+    bar width=8pt,
+    ymin=0.75,
+    ymax=0.90,
+    enlarge x limits=0.22,
+    symbolic x coords={Accuracy,ROC-AUC,CV AUC},
+    xtick=data,
+    ylabel={Score},
+    ymajorgrids=true,
+    grid style={gray!20},
+    legend style={at={(0.5,1.02)},anchor=south,legend columns=2,draw=none,font=\scriptsize},
+    tick label style={font=\scriptsize},
+    label style={font=\scriptsize}
+]
+\addplot+[fill=navy!65, draw=navy!70] coordinates {
+  (Accuracy,0.820)
+  (ROC-AUC,0.882)
+  (CV AUC,0.874)
+};
+\addplot+[fill=teal!65, draw=teal!80!black] coordinates {
+  (Accuracy,0.803)
+  (ROC-AUC,0.869)
+  (CV AUC,0.862)
+};
+\legend{Expert DAG, Learned DAG}
+
+\addplot[
+  only marks,
+  mark=*,
+  mark options={fill=navy!80},
+  error bars/.cd,
+  y dir=both,
+  y explicit,
+  draw=navy!80
+] coordinates {(CV AUC,0.874) +- (0,0.038)};
+
+\addplot[
+  only marks,
+  mark=square*,
+  mark options={fill=teal!85!black},
+  error bars/.cd,
+  y dir=both,
+  y explicit,
+  draw=teal!85!black
+] coordinates {(CV AUC,0.862) +- (0,0.051)};
+\end{axis}
+\end{tikzpicture}
+\caption{Compact scorecard for the reported metrics. Error bars on CV AUC show fold-to-fold variation.}
+\label{fig:scorecard}
+\end{figure}
+
+\subsection{Calibration and uncertainty quality}
+The expert model also has the lower Brier score (0.140 versus 0.148), indicating better probabilistic quality. That matters because this project is not only about ranking patients correctly; it is about returning posterior probabilities that can support downstream decisions. The evaluation notebook explicitly computes 5-bin reliability diagrams, and the scalar Brier summary is consistent with the expert network producing slightly more trustworthy confidence estimates on the held-out set.
+
+This distinction is important in a clinical context. A classifier that says ``positive'' or ``negative'' is less useful than a model that can express the difference between 0.55 and 0.90 posterior risk. The BN framework makes that distinction natural, and the smoothed CPT estimates help keep those probabilities from becoming overly brittle on a dataset of this size.
+
+\subsection{Structure and interpretation}
+Interpretability is one of the strongest reasons to prefer BNs here. In the expert graph, the diagnosis node is surrounded by eight clinically meaningful parents: chest-pain type, cholesterol, resting blood pressure, ECG findings, exercise-induced angina, ST depression, vessel count, and thalassemia type. That neighborhood is easy to explain and matches the core variables physicians would already regard as informative.
+
+The learned structure remains useful, but mainly as a comparison point rather than as a final explanatory artifact. Because hill-climbing is fit on only 242 training examples, its exact edge set is sample-sensitive. The larger cross-validation variance reflects that instability. In other words, the learned model is competitive enough to validate that the data contain meaningful signal, but not stable enough to replace the expert specification as the more defensible reportable model.
+
+\section{Discussion}
+Three design choices largely explain the observed outcome. First, clinically guided edges shrink the search space and prevent the model from spending parameters on weak dependencies. Second, BDeu smoothing avoids degenerate conditional tables in sparse regions of the state space. Third, exact inference with full patient evidence makes the prediction task faithful to the BN formulation rather than reducing the problem to local CPT inspection.
+
+At the same time, the project has important limitations. The dataset is small, the held-out test set contains only 61 patients, and discretization necessarily discards some information from continuous measurements. The learned graph is therefore best interpreted as a noisy structural probe rather than a robust causal discovery result. A larger cohort, repeated random splits, or external validation would be needed before making stronger claims about deployment-quality performance.
 
 \section{Conclusion}
-We have shown that a Bayesian network with a clinically informed structure
-can accurately predict heart disease (AUC $\approx 0.88$, accuracy $\approx 82\%$)
-with well-calibrated posterior probabilities. The expert DAG outperforms
-the fully data-driven structure on all metrics when training data is
-limited---a predictable consequence of structure search overfitting to
-242 samples. Nonetheless, the learned model independently recovers the
-strongest clinical predictors, providing data-driven support for the
-expert encoding. The calibration analysis demonstrates that BNs with
-BDeu smoothing are near-perfectly reliable at intermediate confidence
-levels and only slightly overconfident at high probabilities, making them
-suitable for decision-support in clinical settings where uncertainty
-quantification matters.
+This project demonstrates that Bayesian networks are a credible model family for heart-disease prediction when interpretability and calibrated uncertainty matter. On the Cleveland dataset, the clinically specified expert graph slightly but consistently outperforms a hill-climbed alternative in test accuracy, ROC-AUC, Brier score, and cross-validated AUC. The difference is not dramatic, which is a useful result in itself: data-driven structure search is viable, but on a small medical dataset it benefits from the bias introduced by domain knowledge.
 
-Future work could explore Chow-Liu trees for continuous variables (avoiding
-discretisation), latent variable extensions to model unobserved comorbidities,
-or comparison with variational inference in a Pyro BN to scale to larger
-datasets.
+The more important takeaway is methodological. By representing diagnosis as a posterior probability conditioned on observed evidence, the BN supports both prediction and explanation. That combination makes it a good fit for decision-support settings where uncertainty, transparency, and feature relationships matter as much as raw classification accuracy.
 
 \begin{thebibliography}{9}
 \bibitem{pgmpy}
-  A. Ankan, A. Panda, \textit{pgmpy: Probabilistic Graphical Models using
-  Python}, SciPy 2015. \url{https://pgmpy.org}
+  A. Ankan and A. Panda,
+  	extit{pgmpy: Probabilistic Graphical Models using Python},
+  SciPy 2015. \url{https://pgmpy.org}
 
 \bibitem{uci}
-  D. Janosi et al., \textit{Heart Disease Data Set}, UCI ML Repository, 1988.
+  D. Janosi, W. Steinbrunn, M. Pfisterer, and R. Detrano,
+  	extit{Heart Disease Data Set},
+  UCI Machine Learning Repository, 1988.
   \url{https://archive.ics.uci.edu/ml/datasets/heart+disease}
 
 \bibitem{hc}
-  D. Chickering, \textit{Optimal Structure Identification With Greedy Search},
-  JMLR 3, 507--554, 2002.
+  D. Chickering,
+  	extit{Optimal Structure Identification With Greedy Search},
+  Journal of Machine Learning Research, 3:507--554, 2002.
 
 \bibitem{bdeu}
-  W. Buntine, \textit{Theory Refinement on Bayesian Networks},
-  UAI 1991.
+  W. Buntine,
+  	extit{Theory Refinement on Bayesian Networks},
+  Proceedings of UAI, 1991.
+
+\bibitem{bnbook}
+  D. Koller and N. Friedman,
+  	extit{Probabilistic Graphical Models: Principles and Techniques},
+  MIT Press, 2009.
 \end{thebibliography}
 
 \end{document}
