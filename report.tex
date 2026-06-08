@@ -26,7 +26,7 @@
 \definecolor{softgray}{HTML}{F3F5F7}
 \definecolor{blanket}{HTML}{DCEFE7}
 
-	ikzset{
+\tikzset{
   flowbox/.style={
     rounded corners=7pt,
     draw=navy!70,
@@ -65,9 +65,9 @@
   dagar/.style={-{Latex[length=2.0mm,width=1.5mm]},thin,draw=slate!90}
 }
 
-	itle{\textbf{Bayesian Networks for Heart Disease Diagnosis:}\\
-	extbf{Structure Learning, Calibration, and Clinical Interpretability}}
-\author{CS 179 Project Report\\University of California, Irvine}
+\title{\textbf{Bayesian Networks for Heart Disease Diagnosis:}\\
+\textbf{Structure Learning, Calibration, and Clinical Interpretability}}
+\author{Josh Talla \quad Brandon Sun \quad Eesj Vij\\CS 179 Project Report\\University of California, Irvine}
 \date{June 2026}
 
 \begin{document}
@@ -122,9 +122,42 @@ The accompanying notebooks implement the full pipeline from preprocessing throug
 \section{Data and Experimental Design}
 
 \subsection{Dataset and preprocessing}
-The dataset contains 303 patients, 13 observed clinical predictors, and a binary diagnosis target. The exploratory notebook reports 165 positive cases (54.5\%) and a sex split of 68\% male. Variables include demographics (age, sex), standard risk factors (resting blood pressure, cholesterol, fasting blood sugar), and diagnostic-test outcomes (ECG result, exercise-induced angina, ST depression, thalassemia type, and number of major vessels observed).
+The dataset contains 303 patients, 13 observed clinical predictors, and a binary diagnosis target. The exploratory notebook reports 165 positive cases (54.5\%) and a sex split of 68\% male. Variables include demographics (age, sex), standard risk factors (resting blood pressure, cholesterol, fasting blood sugar), and diagnostic-test outcomes (ECG result, exercise-induced angina, ST depression, thalassemia type, and number of major vessels observed). This mix makes the problem a good BN use case: several variables are individually informative, but the prediction problem depends just as much on how they interact conditionally as on their marginal effect sizes.
 
-Because the project uses discrete BNs in \texttt{pgmpy}, five continuous variables are binned into clinically interpretable categories before learning. The remaining variables are already categorical or binary and are cast to string labels for uniform handling by the library. An 80/20 stratified split yields 242 training cases and 61 test cases.
+Because the project uses discrete BNs in \texttt{pgmpy}, five continuous variables are binned into clinically interpretable categories before learning. The remaining variables are already categorical or binary and are cast to string labels for uniform handling by the library. An 80/20 stratified split yields 242 training cases and 61 test cases. Stratification matters here because a non-stratified split could easily distort the disease prevalence seen during training, which would in turn affect both the learned structure and the posterior calibration.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+    width=\columnwidth,
+    height=5.8cm,
+    ybar,
+    bar width=12pt,
+    ymin=0,
+    ymax=310,
+    enlarge x limits=0.28,
+    symbolic x coords={Negative,Positive,Train,Test},
+    xtick=data,
+    ylabel={Patients},
+    ymajorgrids=true,
+    grid style={gray!20},
+    tick label style={font=\scriptsize},
+    label style={font=\scriptsize},
+    nodes near coords,
+    every node near coord/.append style={font=\scriptsize}
+]
+\addplot+[fill=navy!70, draw=navy!85] coordinates {
+  (Negative,138)
+  (Positive,165)
+  (Train,242)
+  (Test,61)
+};
+\end{axis}
+\end{tikzpicture}
+\caption{Cohort overview from Notebook 01. The dataset is mildly class-imbalanced and uses a modest 61-patient held-out test split, which motivates reporting cross-validation alongside test metrics.}
+\label{fig:cohort}
+\end{figure}
 
 \begin{table}[t]
 \centering
@@ -132,7 +165,7 @@ Because the project uses discrete BNs in \texttt{pgmpy}, five continuous variabl
 \caption{Discretization scheme used in the preprocessing notebook.}
 \rowcolors{2}{softgray}{white}
 \begin{tabular}{p{0.16\columnwidth}p{0.72\columnwidth}}
-	oprule
+\toprule
 Variable & Clinical bins \\
 \midrule
 Age & young $<$ 45, middle 45--55, older 55--65, senior $\geq$ 65 \\
@@ -146,14 +179,14 @@ Oldpeak & none $= 0$, mild $(0,2)$, marked $\geq$ 2 \\
 \end{table}
 
 \subsection{Competing network structures}
-The first model is an expert DAG that encodes domain knowledge directly. It contains 17 edges and uses clinically plausible pathways: age and sex influence cholesterol, resting blood pressure, and maximum heart rate; exercise variables feed through \texttt{thalach} $\rightarrow$ \texttt{exang}; and several well-known predictors connect directly to the diagnosis node. The direct parents of \texttt{target} in the expert model are \texttt{cp}, \texttt{chol}, \texttt{trestbps}, \texttt{restecg}, \texttt{exang}, \texttt{oldpeak}, \texttt{ca}, and \texttt{thal}.
+The first model is an expert DAG that encodes domain knowledge directly. It contains 17 edges and uses clinically plausible pathways: age and sex influence cholesterol, resting blood pressure, and maximum heart rate; exercise variables feed through \texttt{thalach} $\rightarrow$ \texttt{exang}; and several well-known predictors connect directly to the diagnosis node. The direct parents of \texttt{target} in the expert model are \texttt{cp}, \texttt{chol}, \texttt{trestbps}, \texttt{restecg}, \texttt{exang}, \texttt{oldpeak}, \texttt{ca}, and \texttt{thal}. This choice keeps the graph sparse enough to interpret node-by-node while still allowing multiple clinically sensible routes into diagnosis, including hemodynamic, exercise-response, and imaging-related pathways.
 
-The second model learns structure from the discretized training set using greedy hill-climbing with the Bayesian Information Criterion (BIC), a maximum in-degree of 3, and up to $10^4$ search iterations. This learned DAG is not treated as a causal claim; rather, it serves as a data-driven comparator for the expert prior.
+The second model learns structure from the discretized training set using greedy hill-climbing with the Bayesian Information Criterion (BIC), a maximum in-degree of 3, and up to $10^4$ search iterations. This learned DAG is not treated as a causal claim; rather, it serves as a data-driven comparator for the expert prior. In practice, that comparison asks whether the data alone discover the same neighborhood around the diagnosis node that a domain-informed graph encodes by hand.
 
 \subsection{Parameter estimation, inference, and metrics}
-Both graphs are fit with the Bayesian estimator in \texttt{pgmpy} using a BDeu prior with equivalent sample size 5. This is important because the training set is small relative to the size of the conditional probability tables; pure maximum-likelihood fitting would create brittle zero-probability cells.
+Both graphs are fit with the Bayesian estimator in \texttt{pgmpy} using a BDeu prior with equivalent sample size 5. This is important because the training set is small relative to the size of the conditional probability tables; pure maximum-likelihood fitting would create brittle zero-probability cells. BDeu smoothing is a practical compromise: it preserves the dominant empirical patterns in the data, but it prevents the model from becoming overconfident simply because a particular parent-state configuration appears only a handful of times.
 
-For each test patient, the evaluation notebook performs exact inference with Variable Elimination and the MinFill order to compute $P(\texttt{target}=1\mid\text{all observed features})$. The project then evaluates:
+For each test patient, the evaluation notebook performs exact inference with Variable Elimination and the MinFill order to compute $P(\texttt{target}=1\mid\text{all observed features})$. Using exact inference rather than approximate sampling keeps the reported probabilities deterministic and directly tied to the fitted network. The project then evaluates:
 \begin{itemize}
   \item \textbf{Accuracy} at a 0.5 threshold.
   \item \textbf{ROC-AUC} for threshold-independent ranking quality.
@@ -165,7 +198,7 @@ For each test patient, the evaluation notebook performs exact inference with Var
 \section{Results}
 
 \subsection{Predictive performance}
-Table~\ref{tab:results} summarizes the main quantitative results. Both structures discriminate well on the small held-out test set, but the expert network is consistently better on every reported test metric. The margin is not large, which is useful in itself: the learned graph is competitive, but the clinical prior appears to regularize the model enough to win on both accuracy and uncertainty quality.
+Table~\ref{tab:results} summarizes the main quantitative results. Both structures discriminate well on the small held-out test set, but the expert network is consistently better on every reported test metric. The margin is not large, which is useful in itself: the learned graph is competitive, but the clinical prior appears to regularize the model enough to win on both accuracy and uncertainty quality. In a report setting, that is a stronger conclusion than simply saying the expert graph ``won''; it suggests that the project succeeded in comparing two reasonable modeling philosophies rather than a strong model against a weak baseline.
 
 \begin{table}[t]
 \centering
@@ -173,7 +206,7 @@ Table~\ref{tab:results} summarizes the main quantitative results. Both structure
 \caption{Held-out and cross-validated performance. Lower Brier is better.}
 \rowcolors{2}{softgray}{white}
 \begin{tabular}{lcccc}
-	oprule
+\toprule
 Model & Acc. & ROC-AUC & Brier & 5-fold CV AUC \\
 \midrule
 Expert DAG & 0.820 & 0.882 & 0.140 & $0.874 \pm 0.038$ \\
@@ -249,7 +282,7 @@ Learned DAG & 0.803 & 0.869 & 0.148 & $0.862 \pm 0.051$ \\
 \label{fig:structure}
 \end{figure*}
 
-The test-set numbers are reinforced by cross-validation. The expert graph reaches a mean ROC-AUC of $0.874$ with standard deviation $0.038$, while the learned graph reaches $0.862$ with a larger standard deviation of $0.051$. On this dataset, that pattern is exactly what one would expect if the hand-crafted structure is acting as structural regularization. The learned graph can adapt to sample-specific dependencies, but that flexibility also increases variance across folds.
+The test-set numbers are reinforced by cross-validation. The expert graph reaches a mean ROC-AUC of $0.874$ with standard deviation $0.038$, while the learned graph reaches $0.862$ with a larger standard deviation of $0.051$. On this dataset, that pattern is exactly what one would expect if the hand-crafted structure is acting as structural regularization. The learned graph can adapt to sample-specific dependencies, but that flexibility also increases variance across folds. For a small medical dataset, that stability matters: a slightly less flexible model is often preferable if it yields more reproducible posterior behavior from one resampling of the data to another.
 
 \begin{figure}[t]
 \centering
@@ -308,20 +341,55 @@ The test-set numbers are reinforced by cross-validation. The expert graph reache
 \label{fig:scorecard}
 \end{figure}
 
-\subsection{Calibration and uncertainty quality}
-The expert model also has the lower Brier score (0.140 versus 0.148), indicating better probabilistic quality. That matters because this project is not only about ranking patients correctly; it is about returning posterior probabilities that can support downstream decisions. The evaluation notebook explicitly computes 5-bin reliability diagrams, and the scalar Brier summary is consistent with the expert network producing slightly more trustworthy confidence estimates on the held-out set.
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+    width=\columnwidth,
+    height=5.2cm,
+    ybar,
+    bar width=14pt,
+    ymin=0.13,
+    ymax=0.155,
+    symbolic x coords={Expert DAG,Learned DAG},
+    xtick=data,
+    ylabel={Brier score},
+    ymajorgrids=true,
+    grid style={gray!20},
+    tick label style={font=\scriptsize},
+    label style={font=\scriptsize},
+    nodes near coords,
+    every node near coord/.append style={font=\scriptsize}
+]
+\addplot+[fill=navy!70, draw=navy!85] coordinates {
+  (Expert DAG,0.140)
+  (Learned DAG,0.148)
+};
+\end{axis}
+\end{tikzpicture}
+\caption{Probabilistic accuracy on the held-out set. Lower Brier is better, so the expert DAG has the stronger calibration-resolution tradeoff.}
+\label{fig:brier}
+\end{figure}
 
-This distinction is important in a clinical context. A classifier that says ``positive'' or ``negative'' is less useful than a model that can express the difference between 0.55 and 0.90 posterior risk. The BN framework makes that distinction natural, and the smoothed CPT estimates help keep those probabilities from becoming overly brittle on a dataset of this size.
+\subsection{Calibration and uncertainty quality}
+The expert model also has the lower Brier score (0.140 versus 0.148), indicating better probabilistic quality. That matters because this project is not only about ranking patients correctly; it is about returning posterior probabilities that can support downstream decisions. The evaluation notebook explicitly computes 5-bin reliability diagrams, and the scalar Brier summary is consistent with the expert network producing slightly more trustworthy confidence estimates on the held-out set. Figure~\ref{fig:brier} makes the gap easy to read: modest in size, but directionally consistent with the rest of the evaluation.
+
+This distinction is important in a clinical context. A classifier that says ``positive'' or ``negative'' is less useful than a model that can express the difference between 0.55 and 0.90 posterior risk. The BN framework makes that distinction natural, and the smoothed CPT estimates help keep those probabilities from becoming overly brittle on a dataset of this size. From a decision-support perspective, that means the model can contribute not just to classification but also to triage, threshold setting, and prioritization of further testing.
 
 \subsection{Structure and interpretation}
-Interpretability is one of the strongest reasons to prefer BNs here. In the expert graph, the diagnosis node is surrounded by eight clinically meaningful parents: chest-pain type, cholesterol, resting blood pressure, ECG findings, exercise-induced angina, ST depression, vessel count, and thalassemia type. That neighborhood is easy to explain and matches the core variables physicians would already regard as informative.
+Interpretability is one of the strongest reasons to prefer BNs here. In the expert graph, the diagnosis node is surrounded by eight clinically meaningful parents: chest-pain type, cholesterol, resting blood pressure, ECG findings, exercise-induced angina, ST depression, vessel count, and thalassemia type. That neighborhood is easy to explain and matches the core variables physicians would already regard as informative. The Markov blanket view is especially useful because it isolates the local explanatory context of diagnosis: once those variables are known, the rest of the graph contributes only indirectly through them.
 
-The learned structure remains useful, but mainly as a comparison point rather than as a final explanatory artifact. Because hill-climbing is fit on only 242 training examples, its exact edge set is sample-sensitive. The larger cross-validation variance reflects that instability. In other words, the learned model is competitive enough to validate that the data contain meaningful signal, but not stable enough to replace the expert specification as the more defensible reportable model.
+The learned structure remains useful, but mainly as a comparison point rather than as a final explanatory artifact. Because hill-climbing is fit on only 242 training examples, its exact edge set is sample-sensitive. The larger cross-validation variance reflects that instability. In other words, the learned model is competitive enough to validate that the data contain meaningful signal, but not stable enough to replace the expert specification as the more defensible reportable model. Its real value in this project is confirmatory: when it rediscovers edges into the diagnosis node that clinicians would already expect, it provides data-driven support for the expert encoding rather than an argument against it.
 
 \section{Discussion}
-Three design choices largely explain the observed outcome. First, clinically guided edges shrink the search space and prevent the model from spending parameters on weak dependencies. Second, BDeu smoothing avoids degenerate conditional tables in sparse regions of the state space. Third, exact inference with full patient evidence makes the prediction task faithful to the BN formulation rather than reducing the problem to local CPT inspection.
+Three design choices largely explain the observed outcome. First, clinically guided edges shrink the search space and prevent the model from spending parameters on weak dependencies. Second, BDeu smoothing avoids degenerate conditional tables in sparse regions of the state space. Third, exact inference with full patient evidence makes the prediction task faithful to the BN formulation rather than reducing the problem to local CPT inspection. Together, those choices push the project toward a balanced objective: good classification performance, meaningful uncertainty, and a graph that remains explainable at presentation time.
 
-At the same time, the project has important limitations. The dataset is small, the held-out test set contains only 61 patients, and discretization necessarily discards some information from continuous measurements. The learned graph is therefore best interpreted as a noisy structural probe rather than a robust causal discovery result. A larger cohort, repeated random splits, or external validation would be needed before making stronger claims about deployment-quality performance.
+At the same time, the project has important limitations. The dataset is small, the held-out test set contains only 61 patients, and discretization necessarily discards some information from continuous measurements. The learned graph is therefore best interpreted as a noisy structural probe rather than a robust causal discovery result. A larger cohort, repeated random splits, or external validation would be needed before making stronger claims about deployment-quality performance. It would also be valuable to compare the current discretized BN against a simpler probabilistic baseline such as logistic regression with post-hoc calibration, since that would separate the benefits of the BN representation from the benefits of probability-aware evaluation more generally.
+
+\section{Future Work}
+There are several natural extensions. A larger follow-up study could average results over repeated train-test splits, compare different equivalent sample sizes for the BDeu prior, and evaluate whether initializing hill-climbing from the expert DAG produces a more stable hybrid structure. It would also be worth benchmarking the Bayesian network against simpler calibrated baselines such as logistic regression, since that would clarify how much of the gain comes from structured graphical modeling specifically.
+
+Another promising direction is to revisit discretization. The current bins are clinically interpretable and appropriate for a class project, but they inevitably compress information in variables such as cholesterol and maximum heart rate. A model that preserves continuous structure, or a hybrid Bayesian-network variant, could test whether the current performance ceiling is being limited more by sample size or by the discretization step itself.
 
 \section{Conclusion}
 This project demonstrates that Bayesian networks are a credible model family for heart-disease prediction when interpretability and calibrated uncertainty matter. On the Cleveland dataset, the clinically specified expert graph slightly but consistently outperforms a hill-climbed alternative in test accuracy, ROC-AUC, Brier score, and cross-validated AUC. The difference is not dramatic, which is a useful result in itself: data-driven structure search is viable, but on a small medical dataset it benefits from the bias introduced by domain knowledge.
@@ -331,28 +399,28 @@ The more important takeaway is methodological. By representing diagnosis as a po
 \begin{thebibliography}{9}
 \bibitem{pgmpy}
   A. Ankan and A. Panda,
-  	extit{pgmpy: Probabilistic Graphical Models using Python},
+  \textit{pgmpy: Probabilistic Graphical Models using Python},
   SciPy 2015. \url{https://pgmpy.org}
 
 \bibitem{uci}
   D. Janosi, W. Steinbrunn, M. Pfisterer, and R. Detrano,
-  	extit{Heart Disease Data Set},
+  \textit{Heart Disease Data Set},
   UCI Machine Learning Repository, 1988.
   \url{https://archive.ics.uci.edu/ml/datasets/heart+disease}
 
 \bibitem{hc}
   D. Chickering,
-  	extit{Optimal Structure Identification With Greedy Search},
+  \textit{Optimal Structure Identification With Greedy Search},
   Journal of Machine Learning Research, 3:507--554, 2002.
 
 \bibitem{bdeu}
   W. Buntine,
-  	extit{Theory Refinement on Bayesian Networks},
+  \textit{Theory Refinement on Bayesian Networks},
   Proceedings of UAI, 1991.
 
 \bibitem{bnbook}
   D. Koller and N. Friedman,
-  	extit{Probabilistic Graphical Models: Principles and Techniques},
+  \textit{Probabilistic Graphical Models: Principles and Techniques},
   MIT Press, 2009.
 \end{thebibliography}
 
