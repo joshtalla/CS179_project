@@ -93,16 +93,16 @@ The accompanying notebooks implement the full pipeline from preprocessing throug
 \begin{figure*}[t]
 \centering
 \begin{tikzpicture}[x=1cm,y=1cm]
-  \node[flowbox] (raw) at (0.0,0.0) {Raw Cleveland data\\303 patients, 14 variables};
-  \node[flowbox] (disc) at (3.3,0.0) {Clinical discretization\\5 continuous variables binned};
-  \node[flowbox] (split) at (6.6,0.0) {Stratified split\\242 train / 61 test};
+  \node[flowbox] (raw) at (0.0,0.0) {Raw Cleveland data};
+  \node[flowbox] (disc) at (3.3,0.0) {Clinical discretization};
+  \node[flowbox] (split) at (6.6,0.0) {Stratified split};
 
-  \node[modelbox] (expert) at (4.8,-1.95) {Expert DAG\\17 clinically chosen edges};
-  \node[modelbox] (learned) at (8.4,-1.95) {Learned DAG\\Hill-climb + BIC\\max in-degree = 3};
+  \node[modelbox] (expert) at (4.8,-1.95) {Expert DAG};
+  \node[modelbox] (learned) at (8.4,-1.95) {Learned DAG};
 
-  \node[flowbox] (fit) at (6.6,-3.9) {Parameter learning\\BDeu prior, ESS = 5};
-  \node[flowbox] (infer) at (9.7,-3.9) {Exact inference\\Variable Elimination\\MinFill order};
-  \node[evalbox] (eval) at (12.8,-3.9) {Evaluation\\Accuracy, ROC-AUC,\\Brier, CV, interpretation};
+  \node[flowbox] (fit) at (6.6,-3.9) {Parameter learning};
+  \node[flowbox] (infer) at (9.7,-3.9) {Exact inference};
+  \node[evalbox] (eval) at (12.8,-3.9) {Evaluation};
 
   \draw[dataarrow] (raw) -- (disc);
   \draw[dataarrow] (disc) -- (split);
